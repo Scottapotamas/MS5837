@@ -19,6 +19,32 @@ void setup()
   ms5837_reset( &sensor );
   delay(10);  // TODO: work out how long this should be
   ms5837_read_calibration_data( &sensor );
+
+  if( sensor.calibration_loaded )
+  {
+    Serial.println("Calibration CRC OK");
+  }
+  else
+  {
+    Serial.println("Calibration CRC FAIL");
+  }
+
+  // Print calibration data (for debug)
+  Serial.println("Calibration Values");
+  Serial.print("C0 = ");
+  Serial.println(sensor.calibration_data[C0_VERSION]);
+  Serial.print("C1 = ");
+  Serial.println(sensor.calibration_data[C1_PRESSURE_SENSITIVITY]);
+  Serial.print("C2 = ");
+  Serial.println(sensor.calibration_data[C2_PRESSURE_OFFSET]);
+  Serial.print("C3 = ");
+  Serial.println(sensor.calibration_data[C3_TEMP_PRESSURE_SENSITIVITY_COEFF]);
+  Serial.print("C4 = ");
+  Serial.println(sensor.calibration_data[C4_TEMP_PRESSURE_OFFSET_COEFF]);
+  Serial.print("C5 = ");
+  Serial.println(sensor.calibration_data[C5_TEMP_REFERENCE]);
+  Serial.print("C6 = ");
+  Serial.println(sensor.calibration_data[C6_TEMP_COEFF]);
 }
 
 void loop()
@@ -51,12 +77,15 @@ void loop()
   // The values are now ready to use.
   // TODO: helper functions for different units
 
+  float pressure = ms5837_pressure_mbar( &sensor );
+  float temperature = ms5837_temperature_celcius( &sensor );
+
   // Report values via UART
-  Serial.print("Temperature C = ");
-  Serial.println(sensor.measurements[1]);
-    
   Serial.print("Pressure (mbar) = ");
-  Serial.println(sensor.measurements[0]);
+  Serial.println(pressure);
+
+  Serial.print("Temperature C = ");
+  Serial.println(temperature);
 
   Serial.println("");
   delay(500);
@@ -65,8 +94,12 @@ void loop()
 // User configurable I2C calls to allow for wide portability.
 void i2c_read(uint8_t address, uint8_t command, uint8_t *data, uint8_t num_bytes)
 {
+  Wire.beginTransmission(address);
+  Wire.write(command);
+  Wire.endTransmission();
+
   Wire.requestFrom(address, num_bytes);
-  for(int i=0; i < num_bytes; i++ )
+  for( uint8_t i = 0; i < num_bytes; i++ )
   {
     data[i] = Wire.read();  
   }
@@ -75,6 +108,6 @@ void i2c_read(uint8_t address, uint8_t command, uint8_t *data, uint8_t num_bytes
 void i2c_write(uint8_t address, uint8_t command, uint8_t *data, uint8_t num_bytes)
 {
   Wire.beginTransmission(address);
-  Wire.write(data, num_bytes);
+  Wire.write(command);
   Wire.endTransmission();
 }

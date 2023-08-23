@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include <stdbool.h>
 
 // ---------------------------------------------------------------------
 
@@ -32,7 +33,7 @@ typedef enum {
 // Internal calibration values stored in PROM
 // Read from CMD_READ_PROM_START to CMD_READ_PROM_END
 typedef enum {
-    C0_VERSION,
+    C0_VERSION = 0,
     C1_PRESSURE_SENSITIVITY,
     C2_PRESSURE_OFFSET,
     C3_TEMP_PRESSURE_SENSITIVITY_COEFF,
@@ -59,7 +60,7 @@ typedef struct {
 
     MS5837_SELECT_SENSOR last_conversion;
     uint32_t samples[2];
-    int64_t measurements[2];
+    int32_t measurements[2];
 } ms5837_t;
 
 // ---------------------------------------------------------------------
@@ -77,6 +78,10 @@ uint16_t ms5837_start_conversion( ms5837_t *sensor, MS5837_SELECT_SENSOR type, M
 uint32_t ms5837_read_conversion( ms5837_t *sensor );
 
 bool ms5837_calculate( ms5837_t *sensor );
+
+float ms5837_temperature_celcius( ms5837_t *sensor );
+
+float ms5837_pressure_mbar( ms5837_t *sensor );
 
 // ---------------------------------------------------------------------
 

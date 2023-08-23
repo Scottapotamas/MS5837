@@ -42,8 +42,9 @@ adc_osr_properties_t adc_osr_settings[] = {
     { .offset = 0x0A, .duration_us = 17200 },
 };
 
+// ---------------------------------------------------------------------
 
-uint8_t crc4( uint16_t n_prom[], size_t len );
+uint8_t crc4( uint16_t n_prom[], uint8_t len );
 
 void ms5837_i2c_read( ms5837_t *sensor, uint8_t command, uint8_t *data, uint8_t num_bytes );
 
@@ -69,7 +70,7 @@ void ms5837_i2c_set_write_fn( ms5837_t *sensor, user_i2c_cb_t callback )
 
 void ms5837_i2c_read( ms5837_t *sensor, uint8_t command, uint8_t *data, uint8_t num_bytes )
 {
-    if( sensor->user_read_fn )
+    if( sensor->user_read_fn && sensor->user_write_fn )
     {
         sensor->user_read_fn( MS5837_ADDR, command, data, num_bytes );
     }
@@ -88,7 +89,7 @@ void ms5837_i2c_write( ms5837_t *sensor, uint8_t command, uint8_t data )
 // Perform a software reset
 void ms5837_reset( ms5837_t *sensor )
 {
-    ms5837_i2c_write( sensor, MS5837_RESET );
+    ms5837_i2c_write( sensor, CMD_RESET, 0 );
 }
 
 // Requests PROM data from sensor and stores it in the structure
@@ -103,15 +104,16 @@ bool ms5837_read_calibration_data( ms5837_t *sensor )
     // Read the 7 16-bit values from PROM
     for( uint8_t i = 0; i < NUM_CALIBRATION_VARIABLES; i++ )
     {
-        ms5837_i2c_read( sensor, CMD_READ_PROM_START+(i*2), 2 );
+        uint8_t buffer[2] = { 0 };
+        ms5837_i2c_read( sensor, CMD_READ_PROM_START+(i*2), &buffer, 2 );
 
-        sensor->calibration_data[i] = (_i2cPort->read() << 8);    // upper byte
-        sensor->calibration_data[i] |= _i2cPort->read()            // lower byte
+        sensor->calibration_data[i] = (buffer[0] << 8);    // upper byte
+        sensor->calibration_data[i] |= buffer[1];          // lower byte
     }
 
     // Validate CRC
     uint8_t crc_rx = sensor->calibration_data[C0_VERSION] >> 12;
-    uint8_t crc_calc = crc4( &calibration_data, sizeof(calibration_data) );
+    uint8_t crc_calc = crc4( &sensor->calibration_data, sizeof(sensor->calibration_data) );
 
     sensor->calibration_loaded = ( crc_rx == crc_calc );
 
@@ -131,17 +133,17 @@ uint16_t ms5837_start_conversion( ms5837_t *sensor, MS5837_SELECT_SENSOR type, M
     switch( type )
     {
         case SENSOR_PRESSURE:
-            ms5837_i2c_write( sensor, CMD_PRESSURE_OSR_BASE + adc_osr_settings[osr].offset );
-            last_request = SENSOR_PRESSURE
+            ms5837_i2c_write( sensor, CMD_PRESSURE_OSR_BASE + adc_osr_settings[osr].offset, 0 );
+            sensor->last_conversion = SENSOR_PRESSURE;
         break;
 
         case SENSOR_TEMPERATURE:
-            ms5837_i2c_write( sensor, CMD_PRESSURE_OSR_BASE + adc_osr_settings[osr].offset );
-            last_request = SENSOR_TEMPERATURE;
+            ms5837_i2c_write( sensor, CMD_TEMPERATURE_OSR_BASE + adc_osr_settings[osr].offset, 0 );
+            sensor->last_conversion = SENSOR_TEMPERATURE;
         break; 
 
         default:
-            last_request = 999; // TODO add an invalid entry
+            sensor->last_conversion = 999; // TODO add an invalid entry
             return 0;
     }
 
@@ -158,8 +160,8 @@ uint32_t ms5837_read_conversion( ms5837_t *sensor )
         return 0;
     }
 
-    uint8_t value[3] = 0;
-    ms5837_i2c_read( sensor, CMD_READ, 3 );
+    uint8_t value[3] = { 0 };
+    ms5837_i2c_read( sensor, CMD_READ, &value, 3 );
 
     uint32_t conversion = 0;
     conversion = value[0];
@@ -192,32 +194,29 @@ bool ms5837_calculate( ms5837_t *sensor )
     // deltaTemp, 25-bit signed
     // dT = D2 - TREF 
     //    = D2 - C5 * 2^8 
-    int32_t delta_temp = sample_temperature - sensor->calibration_data[C5_TEMP_REFERENCE] * (1 << 8);
+    int32_t delta_temp = sample_temperature - (uint32_t)sensor->calibration_data[C5_TEMP_REFERENCE] * (1 << 8);
 
     // Actual Temperature - 41-bit signed
     // TEMP = 20°C + dT * TEMPSENS 
     //      = 2000 + dT * C6 / 2^23
-    // 2^23 is 8388608
-    int32_t temperature = 2000UL + delta_temp * sensor->calibration_data[C6_TEMP_COEFF] / (1 << 23);
+    int32_t temperature = 2000UL + delta_temp * (int64_t)sensor->calibration_data[C6_TEMP_COEFF] / ((uint32_t)1 << 23);
 
     // Pressure Offset - 41-bit signed
     // OFF = OFF_T1 + TCO * dT 
     //     = C2 * 2^17 + (C4 * dT ) / 2^6
-    int64_t pressure_offset = sensor->calibration_data[C2_PRESSURE_OFFSET] * (1 << 17) 
-                              + (sensor->calibration_data[C4_TEMP_PRESSURE_OFFSET_COEFF] * delta_temp)/(1 << 6);
+    int64_t pressure_offset = ((int64_t)sensor->calibration_data[C2_PRESSURE_OFFSET] * ((uint32_t)1 << 17)) 
+                              + (int64_t)(sensor->calibration_data[C4_TEMP_PRESSURE_OFFSET_COEFF] * delta_temp)/(1 << 6);
 
     // Pressure Sensitivity at actual temp - 41-bit signed
     // SENS = SENS T1 + TCS * dT 
     //      = C1 * 2^16 + (C3 * dT ) / 2^7
-    int64_t pressure_sensitivity = sensor->calibration_data[C1_PRESSURE_SENSITIVITY] * (1 << 16) 
-                                   + ( sensor->calibration_data[C3_TEMP_PRESSURE_SENSITIVITY_COEFF] * delta_temp)/(1 << 7); 
+    int64_t pressure_sensitivity = (int64_t)sensor->calibration_data[C1_PRESSURE_SENSITIVITY] * ((uint32_t)1 << 16) 
+                                   + ( (int64_t)sensor->calibration_data[C3_TEMP_PRESSURE_SENSITIVITY_COEFF] * delta_temp)/((uint32_t)1 << 7); 
 
     // Pressure (temperature compensated) - 58-bit signed
     // P = D1 * SENS - OFF 
     //   = (D1 * SENS / 2^21 - OFF) / 2^15
-    // 2^21 is 2097152, 2^15 is 32768
-    int64_t pressure = ( sample_pressure * pressure_sensitivity / (1 << 21) - pressure_offset ) / (1 << 15);
-
+    int32_t pressure = ( sample_pressure * (pressure_sensitivity / ((uint32_t)1 << 21)) - pressure_offset ) / ((uint32_t)1 << 15);
 
     // Calculations for Second Order Compensation
 
@@ -226,16 +225,16 @@ bool ms5837_calculate( ms5837_t *sensor )
     int32_t offset_i = 0;
     int32_t sensitivity_i = 0;
 
-    if( (temperature / 100) < 20 )
+    if( (temperature / 100U) < 20 )
     {
         // Ti = 11 * dT^2 / 2^35
-        temp_i = 11 * delta_temp*delta_temp / (1 << 35);
+         temp_i = ( 11 * (int64_t)delta_temp*(int64_t)delta_temp ) / ((uint64_t)1 << 35);
         
         // OFFi = 31 * (TEMP - 2000)^2 / 2^3
-        offset_i = 31 * (temperature-2000)*(temperature-2000) / (1 << 3);
+         offset_i = ( 31 * (temperature-2000)*(temperature-2000) ) / (1 << 3);
 
         // SENSi = 63 * (TEMP - 2000)^2 / 2^5
-        sensitivity_i = 63 * (temperature-2000)*(temperature-2000)/ (1 << 5);
+         sensitivity_i = ( 63 * (temperature-2000)*(temperature-2000) ) / (1 << 5);
     }
 
     // Calculate 2nd order terms
@@ -246,11 +245,10 @@ bool ms5837_calculate( ms5837_t *sensor )
     int64_t sensitivity_2 = pressure_sensitivity - sensitivity_i;
 
     // TEMP2 = (TEMP - Ti)/100      degC
-    int64_t temperature_2 = ( temperature - temp_i ) / 100U;
+    int32_t temperature_2 = ( temperature - temp_i );
 
     // P2 = ( (D1*SENS2 / 2^21 - OFF2 ) / 2^15 ) / 100    milibar
-    int64_t pressure_2 = ( ( (sample_pressure * sensitivity_2) / (1 << 21) - offset_2 ) / (1 << 15) )
-                         / 100U;
+    int32_t pressure_2 = ( ( (sample_pressure * sensitivity_2) / ((uint32_t)1 << 21) - offset_2 ) / ((uint32_t)1 << 15) );
 
     // Store the results in the sensor structure
     sensor->measurements[SENSOR_PRESSURE] = pressure_2;
@@ -263,10 +261,22 @@ bool ms5837_calculate( ms5837_t *sensor )
     return true;
 }
 
+// ---------------------------------------------------------------------
 
+float ms5837_temperature_celcius( ms5837_t *sensor )
+{
+    return sensor->measurements[SENSOR_TEMPERATURE]/100.0f;
+}
+
+float ms5837_pressure_mbar( ms5837_t *sensor )
+{
+    return sensor->measurements[SENSOR_PRESSURE]/100.0f;
+}
+
+// ---------------------------------------------------------------------
 
 // RROM is 7 unsigned int16 values for 112-bits
-uint8_t crc4( uint16_t n_prom[], size_t len ) 
+uint8_t crc4( uint16_t n_prom[], uint8_t len ) 
 {
     uint16_t crc_rem = 0; // CRC remainder
 
