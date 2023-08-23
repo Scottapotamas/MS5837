@@ -9,104 +9,107 @@
 #define MS5837_ID_02BA01 (0x00)
 #define MS5837_ID_02BA21 (0x15)
 #define MS5837_ID_30BA26 (0x1A)
+// TODO cleanup/enumify this
+
+#define MS5837_ADDR (0x76)
 
 typedef enum {
-	CMD_RESET = 0x1E,
-	CMD_READ = 0x00,
-	CMD_READ_PROM_START = 0xA0,
-	CMD_READ_PROM_END = 0xAE,
+    CMD_RESET = 0x1E,
+    CMD_READ = 0x00,
+    CMD_READ_PROM_START = 0xA0,
+    CMD_READ_PROM_END = 0xAE,
 
-	CMD_PRESSURE_OSR_BASE = 0x40,	// OSR256
-	// other OSR requests
-
-	CMD_TEMPERATURE_OSR_BASE = 0x50, // OSR256
-	// other OSR requests
+    CMD_PRESSURE_OSR_BASE = 0x40,    // OSR256
+    // other OSR requests
+    CMD_TEMPERATURE_OSR_BASE = 0x50, // OSR256
+    // other OSR requests
 } MS5837_COMMANDS;
-
-// End-user enum for selecting an oversample resolution
-typedef enum {
-	OSR_256 = 0,
-	OSR_512,
-	OSR_1024,
-	OSR_2048,
-	OSR_4096,
-	OSR_8192,
-} MS5837_ADC_OSR;
 
 // Structure for cleanly handling OSR and conversion duration values
 typedef struct {
-	uint8_t offset;			// Address offset from base for this OSR level
-	uint16_t duration_us;	// Maximum duration for ADC conversions
+    uint8_t offset;            // Address offset from base for this OSR level
+    uint16_t duration_us;    // Maximum duration for ADC conversions
 } adc_osr_properties_t;
 
+// The offsets need to be added to the Pressure OSR base or Temp OSR base addresses
+// used as a reference
 adc_osr_properties_t adc_osr_settings[] = {
-	{ .offset = 0x00, .duration_us = 560 },
-	{ .offset = 0x02, .duration_us = 1100 },
-	{ .offset = 0x04, .duration_us = 2170 },
-	{ .offset = 0x06, .duration_us = 4320 },
-	{ .offset = 0x08, .duration_us = 8610 },
-	{ .offset = 0x0A, .duration_us = 17200 },
+    { .offset = 0x00, .duration_us = 560 },
+    { .offset = 0x02, .duration_us = 1100 },
+    { .offset = 0x04, .duration_us = 2170 },
+    { .offset = 0x06, .duration_us = 4320 },
+    { .offset = 0x08, .duration_us = 8610 },
+    { .offset = 0x0A, .duration_us = 17200 },
 };
 
-// These need to be added to the Pressure OSR base or Temp OSR base addresses
-// used as a reference
 
+uint8_t crc4( uint16_t n_prom[], size_t len );
 
+void ms5837_i2c_read( ms5837_t *sensor, uint8_t command, uint8_t *data, uint8_t num_bytes );
 
-// Internal calibration values stored in PROM
-// Read from CMD_READ_PROM_START to CMD_READ_PROM_END
-typedef enum {
-	C0_VERSION,
-	C1_PRESSURE_SENSITIVITY,
-	C2_PRESSURE_OFFSET,
-	C3_TEMP_PRESSURE_SENSITIVITY_COEFF,
-	C4_TEMP_PRESSURE_OFFSET_COEFF,
-	C5_TEMP_REFERENCE,
-	C6_TEMP_COEFF,
-	NUM_CALIBRATION_VARIABLES	// must be last enum value
-} MS5837_CALIBRATION_VARIABLES;
+void ms5837_i2c_write( ms5837_t *sensor, uint8_t command, uint8_t data );
 
+// ---------------------------------------------------------------------
 
-typedef struct {
-	// I2C read/write callbacks?
-
-	uint8_t i2c_address;
-
-	bool calibration_loaded;
-	uint16_t calibration_data[NUM_CALIBRATION_VARIABLES];
-
-} ms5837_t;
-
-
-
-
-void ms5837_i2c_read( ms5837_t *sensor, uint8_t address, uint8_t bytes )
+void ms5837_i2c_set_read_fn( ms5837_t *sensor, user_i2c_cb_t callback )
 {
-
+    if( sensor && callback )
+    {
+        sensor->user_read_fn = callback;
+    }
 }
 
-void ms5837_i2c_write( ms5837_t *sensor, uint8_t address, uint8_t data )
+void ms5837_i2c_set_write_fn( ms5837_t *sensor, user_i2c_cb_t callback )
 {
-	
+    if( sensor && callback )
+    {
+        sensor->user_write_fn = callback;
+    }
 }
 
+void ms5837_i2c_read( ms5837_t *sensor, uint8_t command, uint8_t *data, uint8_t num_bytes )
+{
+    if( sensor->user_read_fn )
+    {
+        sensor->user_read_fn( MS5837_ADDR, command, data, num_bytes );
+    }
+}
+
+void ms5837_i2c_write( ms5837_t *sensor, uint8_t command, uint8_t data )
+{
+    if( sensor->user_write_fn )
+    {
+        sensor->user_write_fn( MS5837_ADDR, command, data, 0 );
+    }
+}
+
+// ---------------------------------------------------------------------
+
+// Perform a software reset
 void ms5837_reset( ms5837_t *sensor )
 {
-
+    ms5837_i2c_write( sensor, MS5837_RESET );
 }
 
-void ms5837_read_calibration_data( ms5837_t *sensor )
+// Requests PROM data from sensor and stores it in the structure
+// Returns true if successful
+bool ms5837_read_calibration_data( ms5837_t *sensor )
 {
-	// Read the 7 16-bit values from PROM
-	for( uint8_t i = 0; i < NUM_CALIBRATION_VARIABLES; i++ )
-	{
-		ms5837_i2c_read( sensor, CMD_READ_PROM_START+(i*2), 2 );
+    if( !sensor )
+    {
+        return false;
+    }
 
-		sensor->calibration_data[i] = (_i2cPort->read() << 8);	// upper byte
-		sensor->calibration_data[i] |= _i2cPort->read()			// lower byte
-	}
+    // Read the 7 16-bit values from PROM
+    for( uint8_t i = 0; i < NUM_CALIBRATION_VARIABLES; i++ )
+    {
+        ms5837_i2c_read( sensor, CMD_READ_PROM_START+(i*2), 2 );
 
-	// Validate CRC
+        sensor->calibration_data[i] = (_i2cPort->read() << 8);    // upper byte
+        sensor->calibration_data[i] |= _i2cPort->read()            // lower byte
+    }
+
+    // Validate CRC
     uint8_t crc_rx = sensor->calibration_data[C0_VERSION] >> 12;
     uint8_t crc_calc = crc4( &calibration_data, sizeof(calibration_data) );
 
@@ -114,99 +117,188 @@ void ms5837_read_calibration_data( ms5837_t *sensor )
 
     // Check the sensor version
     uint8_t version = (sensor->calibration_data[C0_VERSION] >> 5) & 0x7F;
-}
+    sensor->variant = version;  // TODO map to an enum here
 
+    return sensor->calibration_loaded;
+}
 
 // Starts an ADC conversion, returns the number of microseconds until data is ready
 // If invalid/error, 0 will be returned
-uint16_t ms5837_start_conversion( ms5837_t *sensor,  )
+uint16_t ms5837_start_conversion( ms5837_t *sensor, MS5837_SELECT_SENSOR type, MS5837_ADC_OSR osr )
 {
-    ms5837_i2c_write( sensor, );
+    // TODO ptr valid and range for input args
 
-    return 0;
+    switch( type )
+    {
+        case SENSOR_PRESSURE:
+            ms5837_i2c_write( sensor, CMD_PRESSURE_OSR_BASE + adc_osr_settings[osr].offset );
+            last_request = SENSOR_PRESSURE
+        break;
+
+        case SENSOR_TEMPERATURE:
+            ms5837_i2c_write( sensor, CMD_PRESSURE_OSR_BASE + adc_osr_settings[osr].offset );
+            last_request = SENSOR_TEMPERATURE;
+        break; 
+
+        default:
+            last_request = 999; // TODO add an invalid entry
+            return 0;
+    }
+
+    return adc_osr_settings[osr].duration_us;
 }
 
-void ms5837_read_conversion( ms5837_t *sensor )
+// Read sensor data, 24-bit unsigned value
+// Then store it in the object
+// Returns 0 for errors, the conversion value if OK
+uint32_t ms5837_read_conversion( ms5837_t *sensor )
 {
+    if( !sensor || sensor->last_conversion >= NUM_SENSOR_FIELDS )
+    {
+        return 0;
+    }
 
+    uint8_t value[3] = 0;
+    ms5837_i2c_read( sensor, CMD_READ, 3 );
+
+    uint32_t conversion = 0;
+    conversion = value[0];
+    conversion = (conversion << 8) | value[1];
+    conversion = (conversion << 8) | value[2];
+
+    sensor->samples[sensor->last_conversion] = conversion;
+    sensor->last_conversion = NUM_SENSOR_FIELDS; // invalidate
+
+    return conversion;
+}
+
+bool ms5837_calculate( ms5837_t *sensor )
+{
+    if( !sensor || !sensor->calibration_loaded )
+    {
+        return false;
+    }
+
+    if( !sensor->samples[0] || !sensor->samples[1] )
+    {
+        return false;
+    }
+
+    uint32_t sample_pressure = sensor->samples[SENSOR_PRESSURE];
+    uint32_t sample_temperature = sensor->samples[SENSOR_TEMPERATURE];
+
+    // First Order conversion 
+
+    // deltaTemp, 25-bit signed
+    // dT = D2 - TREF 
+    //    = D2 - C5 * 2^8 
+    int32_t delta_temp = sample_temperature - sensor->calibration_data[C5_TEMP_REFERENCE] * (1 << 8);
+
+    // Actual Temperature - 41-bit signed
+    // TEMP = 20°C + dT * TEMPSENS 
+    //      = 2000 + dT * C6 / 2^23
+    // 2^23 is 8388608
+    int32_t temperature = 2000UL + delta_temp * sensor->calibration_data[C6_TEMP_COEFF] / (1 << 23);
+
+    // Pressure Offset - 41-bit signed
+    // OFF = OFF_T1 + TCO * dT 
+    //     = C2 * 2^17 + (C4 * dT ) / 2^6
+    int64_t pressure_offset = sensor->calibration_data[C2_PRESSURE_OFFSET] * (1 << 17) 
+                              + (sensor->calibration_data[C4_TEMP_PRESSURE_OFFSET_COEFF] * delta_temp)/(1 << 6);
+
+    // Pressure Sensitivity at actual temp - 41-bit signed
+    // SENS = SENS T1 + TCS * dT 
+    //      = C1 * 2^16 + (C3 * dT ) / 2^7
+    int64_t pressure_sensitivity = sensor->calibration_data[C1_PRESSURE_SENSITIVITY] * (1 << 16) 
+                                   + ( sensor->calibration_data[C3_TEMP_PRESSURE_SENSITIVITY_COEFF] * delta_temp)/(1 << 7); 
+
+    // Pressure (temperature compensated) - 58-bit signed
+    // P = D1 * SENS - OFF 
+    //   = (D1 * SENS / 2^21 - OFF) / 2^15
+    // 2^21 is 2097152, 2^15 is 32768
+    int64_t pressure = ( sample_pressure * pressure_sensitivity / (1 << 21) - pressure_offset ) / (1 << 15);
+
+
+    // Calculations for Second Order Compensation
+
+    // Low temp compensation (<20C)
+    int32_t temp_i = 0;
+    int32_t offset_i = 0;
+    int32_t sensitivity_i = 0;
+
+    if( (temperature / 100) < 20 )
+    {
+        // Ti = 11 * dT^2 / 2^35
+        temp_i = 11 * delta_temp*delta_temp / (1 << 35);
+        
+        // OFFi = 31 * (TEMP - 2000)^2 / 2^3
+        offset_i = 31 * (temperature-2000)*(temperature-2000) / (1 << 3);
+
+        // SENSi = 63 * (TEMP - 2000)^2 / 2^5
+        sensitivity_i = 63 * (temperature-2000)*(temperature-2000)/ (1 << 5);
+    }
+
+    // Calculate 2nd order terms
+    // OFF2 = OFF - OFFi
+    int64_t offset_2 = pressure_offset - offset_i;
+
+    // SENS2 = SENS - SENSi
+    int64_t sensitivity_2 = pressure_sensitivity - sensitivity_i;
+
+    // TEMP2 = (TEMP - Ti)/100      degC
+    int64_t temperature_2 = ( temperature - temp_i ) / 100U;
+
+    // P2 = ( (D1*SENS2 / 2^21 - OFF2 ) / 2^15 ) / 100    milibar
+    int64_t pressure_2 = ( ( (sample_pressure * sensitivity_2) / (1 << 21) - offset_2 ) / (1 << 15) )
+                         / 100U;
+
+    // Store the results in the sensor structure
+    sensor->measurements[SENSOR_PRESSURE] = pressure_2;
+    sensor->measurements[SENSOR_TEMPERATURE] = temperature_2;
+
+    // Wipe conversion value fields
+    sensor->samples[SENSOR_PRESSURE] = 0;
+    sensor->samples[SENSOR_TEMPERATURE] = 0;
+
+    return true;
 }
 
 
 
-// Read sensor data
-// Pressure (D1) is 24-bit unsigned
-// Temperature (D2) is 24-bit unsigned
-
-
-// Calculations for First Order 
-
-// deltaTemp, 25-bit signed
-// dT = D2 - T_REF = D2 - C5 * 2^8
-
-// Actual Temperature - 41-bit signed
-// TEMP = 20°C + dT * TEMPSENS = 2000 + dT * C6 / 2^23
-
-// Pressure Offset - 41-bit signed
-// OFF = OFF_T1 + TCO * dT = C2 * 2^17 + (C4 * dT ) / 2^6
-
-// Pressure Sensitivity at actual temp - 41-bit signed
-// SENS = SENS T1 + TCS * dT = C1 * 2^16 + (C3 * dT ) / 2^7
-
-// Pressure (temperature compensated) - 58-bit signed
-// P = D1 * SENS - OFF = (D1 * SENS / 2 21 - OFF) / 2^15
-
-// Calculations for Second Order Compensation
-// Assumes first order values usable
-
-// If temperature is under 20C, first
-// Ti = 11 * dT^2 / 2^35
-// OFFi = 31 * (TEMP - 2000)^2 / 2^3
-// SENSi = 63 * (TEMP - 2000)^2 / 2^5
-
-// Then calc 2nd order terms
-// OFF2 = OFF - OFFi
-// SENS2 = SENS - SENSi
-
-// TEMP2 = (TEMP - Ti)/100		degC
-// P2 = ( (D1*SENS2 / 2^21 - OFF2 ) / 2^15 ) / 100    milibar
-
-
-// n_prom defined as 8x unsigned int (n_prom[8])
-unsigned char crc4( unsigned int n_prom[] ) 
+// RROM is 7 unsigned int16 values for 112-bits
+uint8_t crc4( uint16_t n_prom[], size_t len ) 
 {
-	int cnt; // simple counter
-	unsigned int n_rem=0; // crc remainder
-	unsigned char n_bit;
+    uint16_t crc_rem = 0; // CRC remainder
 
-	n_prom[0] = ((n_prom[0]) & 0x0FFF); // CRC byte is replaced by 0
-	n_prom[7] = 0; 						// Subsidiary value, set to 0
-	
-	for(cnt = 0; cnt < 16; cnt++) // operation is performed on bytes
-	{ 
-		// choose LSB or MSB
-		if (cnt%2==1) n_rem ^= (unsigned short)
-		{
-			((n_prom[cnt>>1]) & 0x00FF);
-		}
-		else 
-		{
-			n_rem ^= (unsigned short) (n_prom[cnt>>1]>>8);
-		}
+    n_prom[0] = ((n_prom[0]) & 0x0FFF); // CRC byte is replaced by 0
+    n_prom[7] = 0;                      // Subsidiary value, set to 0
+    
+    for( uint8_t byte = 0; byte < 16; byte++ )
+    {
+        // choose LSB or MSB
+        if( byte % 2 == 1 ) 
+        {
+            crc_rem ^= (unsigned short)(n_prom[byte >> 1] & 0x00FF);
+        }
+        else 
+        {
+            crc_rem ^= (unsigned short)(n_prom[byte >>1 ] >> 8);
+        }
 
-		for (n_bit = 8; n_bit > 0; n_bit--)
-		{
-			if (n_rem & (0x8000))
-			{
-				n_rem = (n_rem << 1) ^ 0x3000;
-			}
-			else
-			{
-				n_rem = (n_rem << 1);
-			}
-		}
-	}
+        for( uint8_t n_bit = 8; n_bit > 0; n_bit-- )
+        {
+            if (crc_rem & (0x8000))
+            {
+                crc_rem = (crc_rem << 1) ^ 0x3000;
+            }
+            else
+            {
+                crc_rem = (crc_rem << 1);
+            }
+        }
+    }
 
-	n_rem = ((n_rem >> 12) & 0x000F); // final 4-bit remainder is CRC code
+    crc_rem = ((crc_rem >> 12) & 0x000F); // final 4-bit remainder is CRC code
 
-	return (n_rem ^ 0x00);
+    return (crc_rem ^ 0x00);
 }
