@@ -205,7 +205,7 @@ bool ms5837_calculate( ms5837_t *sensor )
     // OFF = OFF_T1 + TCO * dT 
     //     = C2 * 2^17 + (C4 * dT ) / 2^6
     int64_t pressure_offset = ((int64_t)sensor->calibration_data[C2_PRESSURE_OFFSET] * ((uint32_t)1 << 17)) 
-                              + (int64_t)(sensor->calibration_data[C4_TEMP_PRESSURE_OFFSET_COEFF] * delta_temp)/(1 << 6);
+                              + ((int64_t)sensor->calibration_data[C4_TEMP_PRESSURE_OFFSET_COEFF] * delta_temp)/(1 << 6);
 
     // Pressure Sensitivity at actual temp - 41-bit signed
     // SENS = SENS T1 + TCS * dT 
