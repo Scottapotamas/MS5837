@@ -4,13 +4,13 @@
 
 #include "ms5837.h"
 
-
 // Stored in PROM word 0
 #define MS5837_ID_02BA01 (0x00)
 #define MS5837_ID_02BA21 (0x15)
 #define MS5837_ID_30BA26 (0x1A)
 // TODO cleanup/enumify this
 
+// Sensor only supports one address!
 #define MS5837_ADDR (0x76)
 
 typedef enum {
@@ -27,7 +27,7 @@ typedef enum {
 
 // Structure for cleanly handling OSR and conversion duration values
 typedef struct {
-    uint8_t offset;            // Address offset from base for this OSR level
+    uint8_t offset;          // Address offset from base for this OSR level
     uint16_t duration_us;    // Maximum duration for ADC conversions
 } adc_osr_properties_t;
 
@@ -44,7 +44,7 @@ adc_osr_properties_t adc_osr_settings[] = {
 
 // ---------------------------------------------------------------------
 
-uint8_t crc4( uint16_t n_prom[], uint8_t len );
+uint8_t crc4( uint16_t n_prom[7] );
 
 void ms5837_i2c_read( ms5837_t *sensor, uint8_t command, uint8_t *data, uint8_t num_bytes );
 
@@ -92,7 +92,7 @@ void ms5837_reset( ms5837_t *sensor )
     ms5837_i2c_write( sensor, CMD_RESET, 0 );
 }
 
-// Requests PROM data from sensor and stores it in the structure
+// Requests PROM data from the sensor and stores it in the structure
 // Returns true if successful
 bool ms5837_read_calibration_data( ms5837_t *sensor )
 {
@@ -105,7 +105,7 @@ bool ms5837_read_calibration_data( ms5837_t *sensor )
     for( uint8_t i = 0; i < NUM_CALIBRATION_VARIABLES; i++ )
     {
         uint8_t buffer[2] = { 0 };
-        ms5837_i2c_read( sensor, CMD_READ_PROM_START+(i*2), &buffer, 2 );
+        ms5837_i2c_read( sensor, CMD_READ_PROM_START+(i*2), &buffer[0], 2 );
 
         sensor->calibration_data[i] = (buffer[0] << 8);    // upper byte
         sensor->calibration_data[i] |= buffer[1];          // lower byte
@@ -113,7 +113,7 @@ bool ms5837_read_calibration_data( ms5837_t *sensor )
 
     // Validate CRC
     uint8_t crc_rx = sensor->calibration_data[C0_VERSION] >> 12;
-    uint8_t crc_calc = crc4( &sensor->calibration_data, sizeof(sensor->calibration_data) );
+    uint8_t crc_calc = crc4( &sensor->calibration_data[0] );
 
     sensor->calibration_loaded = ( crc_rx == crc_calc );
 
@@ -128,7 +128,10 @@ bool ms5837_read_calibration_data( ms5837_t *sensor )
 // If invalid/error, 0 will be returned
 uint16_t ms5837_start_conversion( ms5837_t *sensor, MS5837_SELECT_SENSOR type, MS5837_ADC_OSR osr )
 {
-    // TODO ptr valid and range for input args
+    if( !sensor )
+    {
+        return 0;
+    }
 
     switch( type )
     {
@@ -143,7 +146,7 @@ uint16_t ms5837_start_conversion( ms5837_t *sensor, MS5837_SELECT_SENSOR type, M
         break; 
 
         default:
-            sensor->last_conversion = 999; // TODO add an invalid entry
+            sensor->last_conversion = NUM_SENSOR_FIELDS+1; // TODO consider an invalid enum value
             return 0;
     }
 
@@ -161,7 +164,7 @@ uint32_t ms5837_read_conversion( ms5837_t *sensor )
     }
 
     uint8_t value[3] = { 0 };
-    ms5837_i2c_read( sensor, CMD_READ, &value, 3 );
+    ms5837_i2c_read( sensor, CMD_READ, &value[0], 3 );
 
     uint32_t conversion = 0;
     conversion = value[0];
@@ -216,7 +219,8 @@ bool ms5837_calculate( ms5837_t *sensor )
     // Pressure (temperature compensated) - 58-bit signed
     // P = D1 * SENS - OFF 
     //   = (D1 * SENS / 2^21 - OFF) / 2^15
-    int32_t pressure = ( sample_pressure * (pressure_sensitivity / ((uint32_t)1 << 21)) - pressure_offset ) / ((uint32_t)1 << 15);
+    // First order pressure value not actually used, implementation left for reference
+    // int32_t pressure = ( sample_pressure * (pressure_sensitivity / ((uint32_t)1 << 21)) - pressure_offset ) / ((uint32_t)1 << 15);
 
     // Calculations for Second Order Compensation
 
@@ -265,23 +269,23 @@ bool ms5837_calculate( ms5837_t *sensor )
 
 float ms5837_temperature_celcius( ms5837_t *sensor )
 {
-    return sensor->measurements[SENSOR_TEMPERATURE]/100.0f;
+    return sensor->measurements[SENSOR_TEMPERATURE] / 100.0f;
 }
 
 float ms5837_pressure_mbar( ms5837_t *sensor )
 {
-    return sensor->measurements[SENSOR_PRESSURE]/100.0f;
+    return sensor->measurements[SENSOR_PRESSURE] / 100.0f;
 }
 
 // ---------------------------------------------------------------------
 
 // RROM is 7 unsigned int16 values for 112-bits
-uint8_t crc4( uint16_t n_prom[], uint8_t len ) 
+uint8_t crc4( uint16_t n_prom[7] )
 {
     uint16_t crc_rem = 0; // CRC remainder
 
-    n_prom[0] = ((n_prom[0]) & 0x0FFF); // CRC byte is replaced by 0
-    n_prom[7] = 0;                      // Subsidiary value, set to 0
+    n_prom[0] = n_prom[0] & 0x0FFF; // CRC byte is replaced by 0
+    n_prom[7] = 0;                  // Subsidiary value, set to 0
     
     for( uint8_t byte = 0; byte < 16; byte++ )
     {
@@ -297,7 +301,7 @@ uint8_t crc4( uint16_t n_prom[], uint8_t len )
 
         for( uint8_t n_bit = 8; n_bit > 0; n_bit-- )
         {
-            if (crc_rem & (0x8000))
+            if( crc_rem & 0x8000 )
             {
                 crc_rem = (crc_rem << 1) ^ 0x3000;
             }
