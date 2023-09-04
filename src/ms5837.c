@@ -272,9 +272,35 @@ float ms5837_temperature_celcius( ms5837_t *sensor )
     return sensor->measurements[SENSOR_TEMPERATURE] / 100.0f;
 }
 
+float ms5837_temperature_fahrenheit( ms5837_t *sensor )
+{
+    // degC * 1.8 + 32 = degF
+    // As intermediate value is in centi-degrees, merge the /100 and *1.8 
+    return ((float)sensor->measurements[SENSOR_TEMPERATURE] / 55.5555f ) + 32.0f;
+}
+
+// ---------------------------------------------------------------------
+
+float ms5837_pressure_bar( ms5837_t *sensor )
+{
+    return sensor->measurements[SENSOR_PRESSURE] / 100000.0f;
+}
+
 float ms5837_pressure_mbar( ms5837_t *sensor )
 {
     return sensor->measurements[SENSOR_PRESSURE] / 100.0f;
+}
+
+float ms5837_pressure_atm( ms5837_t *sensor )
+{
+    // 1bar = 0.98692326671 atm
+    // converted value is in 10ths of a bar, so scale the conversion factor
+    return sensor->measurements[SENSOR_PRESSURE] / 101300.0f;
+}
+
+float ms5837_pressure_pascal( ms5837_t *sensor )
+{
+    return sensor->measurements[SENSOR_PRESSURE];
 }
 
 // ---------------------------------------------------------------------

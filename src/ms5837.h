@@ -81,7 +81,15 @@ bool ms5837_calculate( ms5837_t *sensor );
 
 float ms5837_temperature_celcius( ms5837_t *sensor );
 
+float ms5837_temperature_fahrenheit( ms5837_t *sensor );
+
+float ms5837_pressure_bar( ms5837_t *sensor );
+
 float ms5837_pressure_mbar( ms5837_t *sensor );
+
+float ms5837_pressure_atm( ms5837_t *sensor );
+
+float ms5837_pressure_pascal( ms5837_t *sensor );
 
 // ---------------------------------------------------------------------
 
