@@ -14,6 +14,8 @@ At time of writing the BlueRobotics library doesn't allow configuration of senso
 
 > Right now it doesn't support the different conversion functions used by other sensor variants.
 
+Oh, and I wrote unit tests for it...
+
 ## Basic usage
 
 The Arduino compatible example shows a basic working implementation.
@@ -117,6 +119,21 @@ The conversion request function allows you to choose the oversampling level with
 > I2C transaction duration also contributes to the minor reduction in effective rate from literature values.
 
 Whilst not discussed in the datasheet at all, I found no measurable difference in accuracy when using a lower OSR value for temperature readings than pressure, which improves measurement latency somewhat.
+
+# Running tests
+
+[![Ceedling](https://github.com/Scottapotamas/ms5837/actions/workflows/ceedling.yml/badge.svg)](https://github.com/Scottapotamas/ms5837/actions/workflows/ceedling.yml)
+
+Testing uses the [Ceedling](http://www.throwtheswitch.org/ceedling/) (Ruby/rake) based testing framework with `Unity` and `CMock`.
+
+1. *If* you don't have Ceedling installed:
+
+   - Either install it with your OS's package manager,
+   - Manual install `ceedling` with `gem install --user ceedling`.
+
+2. Once setup, run `ceedling` or `ceedling test:all`.
+
+GitHub Actions compile the Arduino examples and run unit-tests when pull-requests are made.
 
 # Licence
 
