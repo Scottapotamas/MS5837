@@ -68,8 +68,8 @@ void test_conversions_02BA( void )
 
     // Library performs second order compensation, but low-temperature compensation
     // shouldn't affect the value
-    TEST_ASSERT_EQUAL_INT( 2000, sensor->measurements[SENSOR_TEMPERATURE] );
-    TEST_ASSERT_EQUAL_INT( 110002, sensor->measurements[SENSOR_PRESSURE] );
+    TEST_ASSERT_EQUAL_INT( 2000, sensor.measurements[SENSOR_TEMPERATURE] );
+    TEST_ASSERT_EQUAL_INT( 110002, sensor.measurements[SENSOR_PRESSURE] );
 }
 
 // -------------------------------------------------------------------
@@ -77,38 +77,38 @@ void test_conversions_02BA( void )
 void test_output_celcius( void )
 {   
     // Force load a compensated/converted value
-    sensor->measurements[SENSOR_TEMPERATURE] = 2000;
+    sensor.measurements[SENSOR_TEMPERATURE] = 2000;
     TEST_ASSERT_EQUAL_FLOAT( 20.0f, ms5837_temperature_celcius(&sensor) );
 }
 
 void test_output_fahrenheit( void )
 {   
-    sensor->measurements[SENSOR_TEMPERATURE] = 2000;
+    sensor.measurements[SENSOR_TEMPERATURE] = 2000;
     TEST_ASSERT_EQUAL_FLOAT( 68.0f, ms5837_temperature_fahrenheit(&sensor) );
 }
 
 void test_output_pascal( void )
 {   
     // Force load the datasheet example value
-    sensor->measurements[SENSOR_PRESSURE] = 110002;
+    sensor.measurements[SENSOR_PRESSURE] = 110002;
     TEST_ASSERT_EQUAL_FLOAT( 110002.0f, ms5837_pressure_pascal(&sensor) );
 }
 
 void test_output_bar( void )
 {
-    sensor->measurements[SENSOR_PRESSURE] = 110002;
+    sensor.measurements[SENSOR_PRESSURE] = 110002;
     TEST_ASSERT_EQUAL_FLOAT( 1.10002f, ms5837_pressure_bar(&sensor) );
 }
 
 void test_output_mbar( void )
 {
-    sensor->measurements[SENSOR_PRESSURE] = 110002;
+    sensor.measurements[SENSOR_PRESSURE] = 110002;
     TEST_ASSERT_EQUAL_FLOAT( 1100.02f, ms5837_pressure_mbar(&sensor) );
 }
 
 void test_output_atm( void )
 {
-    sensor->measurements[SENSOR_PRESSURE] = 110002;
+    sensor.measurements[SENSOR_PRESSURE] = 110002;
     TEST_ASSERT_EQUAL_FLOAT( 1.08563533f, ms5837_pressure_atm(&sensor) );
 }
 

@@ -48,7 +48,7 @@ uint8_t crc4( uint16_t n_prom[7] );
 
 void ms5837_i2c_read( ms5837_t *sensor, uint8_t command, uint8_t *data, uint8_t num_bytes );
 
-void ms5837_i2c_write( ms5837_t *sensor, uint8_t command, uint8_t data );
+void ms5837_i2c_write( ms5837_t *sensor, uint8_t command );
 
 // ---------------------------------------------------------------------
 
@@ -76,11 +76,11 @@ void ms5837_i2c_read( ms5837_t *sensor, uint8_t command, uint8_t *data, uint8_t 
     }
 }
 
-void ms5837_i2c_write( ms5837_t *sensor, uint8_t command, uint8_t data )
+void ms5837_i2c_write( ms5837_t *sensor, uint8_t command )
 {
     if( sensor->user_write_fn )
     {
-        sensor->user_write_fn( MS5837_ADDR, command, data, 0 );
+        sensor->user_write_fn( MS5837_ADDR, command, 0, 0 );
     }
 }
 
@@ -89,7 +89,7 @@ void ms5837_i2c_write( ms5837_t *sensor, uint8_t command, uint8_t data )
 // Perform a software reset
 void ms5837_reset( ms5837_t *sensor )
 {
-    ms5837_i2c_write( sensor, CMD_RESET, 0 );
+    ms5837_i2c_write( sensor, CMD_RESET );
 }
 
 // Requests PROM data from the sensor and stores it in the structure
@@ -136,12 +136,12 @@ uint16_t ms5837_start_conversion( ms5837_t *sensor, MS5837_SELECT_SENSOR type, M
     switch( type )
     {
         case SENSOR_PRESSURE:
-            ms5837_i2c_write( sensor, CMD_PRESSURE_OSR_BASE + adc_osr_settings[osr].offset, 0 );
+            ms5837_i2c_write( sensor, CMD_PRESSURE_OSR_BASE + adc_osr_settings[osr].offset );
             sensor->last_conversion = SENSOR_PRESSURE;
         break;
 
         case SENSOR_TEMPERATURE:
-            ms5837_i2c_write( sensor, CMD_TEMPERATURE_OSR_BASE + adc_osr_settings[osr].offset, 0 );
+            ms5837_i2c_write( sensor, CMD_TEMPERATURE_OSR_BASE + adc_osr_settings[osr].offset );
             sensor->last_conversion = SENSOR_TEMPERATURE;
         break; 
 
@@ -295,7 +295,7 @@ float ms5837_pressure_atm( ms5837_t *sensor )
 {
     // 1bar = 0.98692326671 atm
     // converted value is in 10ths of a bar, so scale the conversion factor
-    return sensor->measurements[SENSOR_PRESSURE] / 101300.0f;
+    return sensor->measurements[SENSOR_PRESSURE] / 101325.0f;
 }
 
 float ms5837_pressure_pascal( ms5837_t *sensor )
